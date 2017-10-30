@@ -19,6 +19,8 @@ typedef struct {
     color_type url_color;
     double repaint_delay, input_delay;
     bool focus_follows_mouse;
+    int adjust_line_height_px;
+    float adjust_line_height_frac;
 } Options;
 
 typedef struct {
