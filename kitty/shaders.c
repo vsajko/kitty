@@ -19,7 +19,6 @@ typedef struct {
     GLuint texture_id;
     GLenum texture_unit;
     GLint max_texture_size, max_array_texture_layers;
-    PyObject *render_cell;
 } SpriteMap;
 
 static SpriteMap sprite_map = { .xnum = 1, .ynum = 1, .last_num_of_layers = 1, .last_ynum = -1, .texture_unit = GL_TEXTURE0 };
@@ -83,15 +82,6 @@ realloc_sprite_texture() {
     sprite_map.texture_id = tex;
 }
 
-static inline PyObject*
-render_cell(PyObject *text, bool bold, bool italic, unsigned int underline, bool strikethrough, bool is_second) {
-#define B(x) (x ? Py_True : Py_False)
-    PyObject *ret = PyObject_CallFunction(sprite_map.render_cell, "OOOIOO", text, B(bold), B(italic), underline, B(strikethrough), B(is_second));
-    if (ret == NULL) { PyErr_Print(); fatal("Rendering of a cell failed, aborting"); }
-    return ret;
-#undef B
-}
-
 static inline void
 ensure_sprite_map() {
     static GLuint bound_texture_id = 0;
@@ -104,35 +94,19 @@ ensure_sprite_map() {
 }
 
 static void 
-sprite_send_to_gpu(unsigned int x, unsigned int y, unsigned int z, PyObject *buf) {
+send_sprite_to_gpu_impl(unsigned int x, unsigned int y, unsigned int z, uint8_t *buf) {
     unsigned int xnum, ynum, znum;
     sprite_tracker_current_layout(&xnum, &ynum, &znum);
     if ((int)znum >= sprite_map.last_num_of_layers || (znum == 0 && (int)ynum > sprite_map.last_ynum)) realloc_sprite_texture();
     glBindTexture(GL_TEXTURE_2D_ARRAY, sprite_map.texture_id); check_gl();
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1); check_gl();
     x *= sprite_map.cell_width; y *= sprite_map.cell_height;
-    PyObject *ret = PyObject_CallObject(buf, NULL);
-    if (ret == NULL) { PyErr_Print(); fatal("Failed to get address of rendered cell buffer"); }
-    void *address = PyLong_AsVoidPtr(ret);
-    Py_DECREF(ret);
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, x, y, z, sprite_map.cell_width, sprite_map.cell_height, 1, GL_RED, GL_UNSIGNED_BYTE, address); check_gl();
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, x, y, z, sprite_map.cell_width, sprite_map.cell_height, 1, GL_RED, GL_UNSIGNED_BYTE, buf); check_gl();
     Py_DECREF(buf);
 }
 
-static inline sprite_index
-send_prerendered(unsigned int underline, bool strikethrough) {
-    sprite_index x, y, z;
-    PyObject *blank = PyUnicode_FromString(" ");
-    if (blank == NULL) { fatal("Out of memory"); }
-    PyObject *buf = render_cell(blank, false, false, underline, strikethrough, false);
-    Py_CLEAR(blank);
-    if (sprite_tracker_increment(&x, &y, &z) != 0) { fatal("Failed to increment sprite map for prerendering"); }
-    sprite_send_to_gpu(x, y, z, buf);
-    return x;
-}
-
 static void 
-layout_sprite_map(unsigned int cell_width, unsigned int cell_height, PyObject *render_cell) {
+layout_sprite_map(unsigned int cell_width, unsigned int cell_height) {
     sprite_map.cell_width = MAX(1, cell_width);
     sprite_map.cell_height = MAX(1, cell_height);
     global_state.cell_width = sprite_map.cell_width;
@@ -143,21 +117,13 @@ layout_sprite_map(unsigned int cell_width, unsigned int cell_height, PyObject *r
         /* sprite_map_set_limits(sprite_map.max_texture_size, sprite_map.max_array_texture_layers); */
     }
     /* sprite_map_set_layout(sprite_map.cell_width, sprite_map.cell_height); */
-    Py_CLEAR(sprite_map.render_cell);
-    sprite_map.render_cell = render_cell; Py_INCREF(sprite_map.render_cell);
     if (sprite_map.texture_id) { glDeleteTextures(1, &(sprite_map.texture_id)); sprite_map.texture_id = 0; }
     realloc_sprite_texture();
-    // Pre-render the basic cells to ensure they have known sprite numbers
-    send_prerendered(0, false);
-    send_prerendered(1, false);
-    send_prerendered(2, false);
-    if (send_prerendered(0, true) != 3) { fatal("Available OpenGL texture size is too small"); }
 }
 
 static void
 destroy_sprite_map() {
     /* sprite_map_free(); */
-    Py_CLEAR(sprite_map.render_cell);
     if (sprite_map.texture_id) {
         glDeleteTextures(1, &(sprite_map.texture_id));
         check_gl();
@@ -545,9 +511,8 @@ NO_ARG_INT(create_graphics_vao)
 NO_ARG(destroy_sprite_map)
 PYWRAP1(layout_sprite_map) {
     unsigned int cell_width, cell_height;
-    PyObject *render_cell;
-    PA("IIO", &cell_width, &cell_height, &render_cell);
-    layout_sprite_map(cell_width, cell_height, render_cell);
+    PA("II", &cell_width, &cell_height);
+    layout_sprite_map(cell_width, cell_height);
     Py_RETURN_NONE;
 }
 
@@ -658,6 +623,7 @@ init_shaders(PyObject *module) {
     draw_cursor = &draw_cursor_impl;
     free_texture = &free_texture_impl;
     send_image_to_gpu = &send_image_to_gpu_impl;
+    send_sprite_to_gpu = &send_sprite_to_gpu_impl;
     return true;
 }
 // }}}

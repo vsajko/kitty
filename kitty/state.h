@@ -106,3 +106,4 @@ EXTERNAL_FUNC(draw_cursor, void, CursorRenderInfo *);
 EXTERNAL_FUNC(update_viewport_size, void, int, int);
 EXTERNAL_FUNC(free_texture, void, uint32_t*);
 EXTERNAL_FUNC(send_image_to_gpu, void, uint32_t*, const void*, int32_t, int32_t, bool, bool);
+EXTERNAL_FUNC(send_sprite_to_gpu, void, unsigned int, unsigned int, unsigned int, uint8_t*);
