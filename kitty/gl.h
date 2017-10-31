@@ -8,7 +8,6 @@
 
 #include "state.h"
 #include "screen.h"
-#include "sprites.h"
 #ifdef __APPLE__
 #include <OpenGL/gl3.h>
 #include <OpenGL/gl3ext.h>
